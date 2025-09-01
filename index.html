@@ -1,0 +1,259 @@
+HTML
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Narrative Map Prototype (Live)</title>
+    <!-- Tailwind CSS CDN for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            @apply bg-gray-100;
+        }
+        #map {
+            height: 100vh;
+            width: 100%;
+        }
+        .story-container {
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        .modal {
+            @apply fixed inset-0 flex items-center justify-center p-4 bg-gray-900 bg-opacity-75 z-50 transition-opacity duration-300;
+        }
+        .modal-content {
+            @apply bg-white p-6 rounded-xl shadow-lg transform transition-all duration-300;
+        }
+    </style>
+</head>
+<body class="flex flex-col md:flex-row">
+
+    <!-- Sidebar for form and stories -->
+    <div class="w-full md:w-1/3 lg:w-1/4 p-6 bg-white shadow-xl flex flex-col story-container">
+        <h1 class="text-3xl font-bold text-gray-900 mb-6">Narrative Map</h1>
+        <p class="text-gray-600 mb-4">Click anywhere on the map to add a new story, image, or video.</p>
+
+        <!-- Submission Form -->
+        <form id="story-form" class="space-y-4">
+            <div class="relative">
+                <input type="text" id="story-title" placeholder="Story Title" class="w-full p-3 rounded-lg border-2 border-gray-300 focus:ring-blue-500 focus:border-blue-500 transition-colors" required>
+            </div>
+            <div class="relative">
+                <textarea id="story-text" placeholder="Tell your story..." rows="4" class="w-full p-3 rounded-lg border-2 border-gray-300 focus:ring-blue-500 focus:border-blue-500 transition-colors" required></textarea>
+            </div>
+            <div class="relative">
+                <input type="url" id="image-url" placeholder="Image URL (optional)" class="w-full p-3 rounded-lg border-2 border-gray-300 focus:ring-blue-500 focus:border-blue-500 transition-colors">
+            </div>
+            <div class="relative">
+                <input type="url" id="video-url" placeholder="YouTube or Vimeo URL (optional)" class="w-full p-3 rounded-lg border-2 border-gray-300 focus:ring-blue-500 focus:border-blue-500 transition-colors">
+            </div>
+            <input type="hidden" id="latitude">
+            <input type="hidden" id="longitude">
+
+            <button type="submit" class="w-full bg-blue-600 text-white font-semibold py-3 rounded-lg hover:bg-blue-700 transition-colors shadow-lg">Submit Story</button>
+        </form>
+
+        <!-- Divider -->
+        <div class="my-6 border-t border-gray-200"></div>
+
+        <!-- Stories List -->
+        <div id="stories-list" class="flex-grow space-y-4">
+            <h2 class="text-xl font-bold text-gray-800">Submitted Stories</h2>
+            <div id="loading-indicator" class="text-center text-gray-500 my-4 hidden">
+                <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto"></div>
+                <p>Loading stories...</p>
+            </div>
+            <!-- Stories will be injected here by JavaScript -->
+        </div>
+    </div>
+
+    <!-- Map Container -->
+    <div id="map" class="w-full md:w-2/3 lg:w-3/4"></div>
+
+    <!-- Custom Message Box/Modal -->
+    <div id="message-modal" class="modal hidden">
+        <div class="modal-content">
+            <div class="text-center">
+                <h3 id="modal-title" class="text-xl font-semibold mb-2"></h3>
+                <p id="modal-message" class="text-gray-700"></p>
+                <button onclick="document.getElementById('message-modal').classList.add('hidden')" class="mt-4 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Google Maps API script -->
+    <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDvp7it10chaG_nla5R1jbbXaZf2tw0NN4&callback=initMap&libraries=marker"></script>
+
+    <script>
+        // IMPORTANT: Replace with your actual Google Apps Script Web App URL
+        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwPpNgMj2v5mm5wBZSHHBxHLawmYfN9p-ZHivMkCSlm1UMInskgpNZkX5ImaUt4f24X/exec';
+
+        let map;
+        let markers = [];
+        let tempMarker = null;
+        let infoWindow = null;
+
+        function initMap() {
+            map = new google.maps.Map(document.getElementById('map'), {
+                center: { lat: 40.7128, lng: -74.0060 },
+                zoom: 13,
+            });
+
+            infoWindow = new google.maps.InfoWindow();
+
+            map.addListener('click', (e) => {
+                if (tempMarker) {
+                    tempMarker.setMap(null);
+                }
+                tempMarker = new google.maps.Marker({
+                    position: e.latLng,
+                    map: map,
+                });
+                document.getElementById('latitude').value = e.latLng.lat();
+                document.getElementById('longitude').value = e.latLng.lng();
+                showMessage('Marker Placed', 'Fill out the form to submit your story at this location.');
+            });
+
+            fetchAndRenderStories();
+        }
+
+        function createStoryCard(story) {
+            const storyList = document.getElementById('stories-list');
+            const card = document.createElement('div');
+            card.className = 'bg-gray-50 p-4 rounded-lg shadow-sm cursor-pointer hover:bg-gray-100 transition-colors';
+            card.innerHTML = `
+                <h3 class="font-semibold text-lg text-gray-800">${story.title}</h3>
+                <p class="text-sm text-gray-500">${story.latitude.toFixed(4)}, ${story.longitude.toFixed(4)}</p>
+                <p class="mt-2 text-sm text-gray-700 truncate">${story.text}</p>
+            `;
+            card.addEventListener('click', () => {
+                map.panTo({ lat: story.latitude, lng: story.longitude });
+                map.setZoom(16);
+            });
+            storyList.appendChild(card);
+        }
+
+        function renderStories(stories) {
+            markers.forEach(marker => marker.setMap(null));
+            markers = [];
+            document.getElementById('stories-list').innerHTML = `<h2 class="text-xl font-bold text-gray-800">Submitted Stories</h2>`;
+
+            stories.forEach(story => {
+                const marker = new google.maps.Marker({
+                    position: { lat: story.latitude, lng: story.longitude },
+                    map: map,
+                    title: story.title,
+                });
+
+                markers.push(marker);
+
+                let popupContent = `<h3 class="font-bold text-lg mb-2">${story.title}</h3><p class="text-sm">${story.text}</p>`;
+
+                if (story.image_url) {
+                    const fallbackImage = `https://placehold.co/400x200/cccccc/000000?text=Image+Not+Found`;
+                    popupContent += `<img src="${story.image_url}" alt="Story image" class="mt-3 w-full rounded-md object-cover" onerror="this.src='${fallbackImage}'">`;
+                }
+
+                if (story.video_url) {
+                    let videoUrl = story.video_url;
+                    if (videoUrl.includes('youtube.com/watch?v=')) {
+                        const videoId = videoUrl.split('v=')[1];
+                        videoUrl = `https://www.youtube.com/embed/${videoId}`;
+                    } else if (videoUrl.includes('youtu.be/')) {
+                        const videoId = videoUrl.split('youtu.be/')[1];
+                        videoUrl = `https://www.youtube.com/embed/${videoId}`;
+                    }
+                    if (videoUrl.includes('vimeo.com')) {
+                        const videoId = videoUrl.split('/').pop();
+                        videoUrl = `https://player.vimeo.com/video/${videoId}`;
+                    }
+
+                    popupContent += `
+                        <div class="mt-3">
+                            <iframe width="100%" height="200" src="${videoUrl}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen class="rounded-md"></iframe>
+                        </div>
+                    `;
+                }
+
+                marker.addListener('click', () => {
+                    infoWindow.setContent(popupContent);
+                    infoWindow.open(map, marker);
+                });
+
+                createStoryCard(story);
+            });
+        }
+
+        async function fetchAndRenderStories() {
+            const loadingIndicator = document.getElementById('loading-indicator');
+            loadingIndicator.classList.remove('hidden');
+
+            try {
+                const response = await fetch(SCRIPT_URL);
+                const stories = await response.json();
+                renderStories(stories);
+            } catch (error) {
+                console.error('Failed to fetch stories:', error);
+                showMessage('Error', 'Failed to load stories from the server.');
+            } finally {
+                loadingIndicator.classList.add('hidden');
+            }
+        }
+
+        document.getElementById('story-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const title = document.getElementById('story-title').value;
+            const text = document.getElementById('story-text').value;
+            const image_url = document.getElementById('image-url').value;
+            const video_url = document.getElementById('video-url').value;
+            const latitude = parseFloat(document.getElementById('latitude').value);
+            const longitude = parseFloat(document.getElementById('longitude').value);
+
+            if (isNaN(latitude) || isNaN(longitude)) {
+                showMessage('Location Required', 'Please click on the map to select a location first.');
+                return;
+            }
+
+            const newStory = { title, text, image_url, video_url, latitude, longitude };
+
+            try {
+                const response = await fetch(SCRIPT_URL, {
+                    method: 'POST',
+                    body: JSON.stringify(newStory),
+                    headers: { 'Content-Type': 'application/json' },
+                });
+
+                if (response.ok) {
+                    showMessage('Success', 'Your story has been added to the map!');
+                    document.getElementById('story-form').reset();
+                    if (tempMarker) {
+                        tempMarker.setMap(null);
+                        tempMarker = null;
+                    }
+                    // Re-fetch all stories to see the new one
+                    fetchAndRenderStories(); 
+                } else {
+                    showMessage('Error', 'Failed to submit story. Please try again.');
+                }
+            } catch (error) {
+                console.error('Submission error:', error);
+                showMessage('Network Error', 'Could not connect to the server.');
+            }
+        });
+
+        function showMessage(title, message) {
+            document.getElementById('modal-title').innerText = title;
+            document.getElementById('modal-message').innerText = message;
+            document.getElementById('message-modal').classList.remove('hidden');
+        }
+        const SPREADSHEET_ID = 'Y1Xe3Ee-xx5BsdlVpLPhNg8AU96pBmBWx63VRhuJHEQnE/'; // Replace with your spreadsheet ID
+const SHEET_NAME = 'Sheet1'; // Make sure this matches your sheet name
+
+
+    </script>
+</body>
+</html>
